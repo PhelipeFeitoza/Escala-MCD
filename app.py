@@ -68,7 +68,7 @@ if visao == "Semanal (Gestor)":
     # Formatar cabeçalho: "seg 13/04"
     df_week.columns = [f"{d.strftime('%a')} {d.strftime('%d/%m')}" for d in df_week.columns]
     
-    st.dataframe(df_week.style.applymap(style_status), use_container_width=True)
+    st.dataframe(df_week.style.map(style_status), use_container_width=True)
 
 elif visao == "Mensal (Gestor)":
     mes = st.sidebar.slider("Mês:", 1, 12, 4)
@@ -80,7 +80,7 @@ elif visao == "Mensal (Gestor)":
     # Formatar cabeçalho
     df_month.columns = [f"{d.strftime('%a %d/%m')}" for d in df_month.columns]
     
-    st.dataframe(df_month.style.applymap(style_status), height=600)
+    st.dataframe(df_month.style.map(style_status), height=600)
 
 elif visao == "Espelho de Ponto (28-27)":
     st.header("📋 Conferência de Espelho de Ponto (28 a 27)")
@@ -112,11 +112,11 @@ elif visao == "Espelho de Ponto (28-27)":
     c3.metric("Afastamentos/Faltas", len(df_resumo[df_resumo['Status'].isin(['FT', 'LM'])]))
 
     # Tabela do Espelho
-    st.table(df_resumo[['Data Formatada', 'Dia da Semana', 'Status']].set_index('Data Formatada').style.applymap(style_status))
+    st.table(df_resumo[['Data Formatada', 'Dia da Semana', 'Status']].set_index('Data Formatada').style.map(style_status))
 
 elif visao == "Anual":
     st.header("🗓️ Visão Anual Completa")
     st.warning("Esta visão contém muitos dados. Use a barra de rolagem lateral.")
     
     df_year = df_filtrado.pivot(index=['Regiao', 'Tecnico'], columns='Data', values='Status')
-    st.dataframe(df_year.style.applymap(style_status), height=600)
+    st.dataframe(df_year.style.map(style_status), height=600)
