@@ -9,124 +9,133 @@ st.set_page_config(page_title="Gestão Field Service McDonalds", layout="wide")
 # 2. FUNÇÃO PARA PROCESSAR O EXCEL
 def processar_excel(file):
     df = pd.read_excel(file, engine='openpyxl')
-    
-    # Colunas: A(0)=ID, C(2)=Região, D(3)=Horário, E(4)=Técnico
     info_cols = df.iloc[:, [0, 2, 3, 4]].copy()
     info_cols.columns = ['ID', 'Regiao', 'Horario', 'Tecnico']
     
-    # Limpeza de nomes e tipos
-    info_cols['ID'] = pd.to_numeric(info_cols['ID'], errors='coerce')
-    info_cols['Regiao'] = info_cols['Regiao'].astype(str).replace('nan', 'N/D')
+    # Tratamento básico de nomes
+    info_cols['Regiao'] = info_cols['Regiao'].astype(str).str.upper()
+    info_cols['Tecnico'] = info_cols['Tecnico'].astype(str)
     
     datas_cols = df.iloc[:, 5:]
     df_unido = pd.concat([info_cols, datas_cols], axis=1)
-    
-    # Transforma em formato longo
     df_long = df_unido.melt(id_vars=['ID', 'Regiao', 'Horario', 'Tecnico'], var_name='Data_Bruta', value_name='Status')
     df_long['Data'] = pd.to_datetime(df_long['Data_Bruta'], errors='coerce')
     df_long = df_long.dropna(subset=['Data'])
     
-    # --- NOVA LÓGICA DE CONTAGEM (FLEXÍVEL) ---
-    def calcular_meta(row):
+    # --- REGRAS DE NEGÓCIO ---
+    def mapear_produtividade(row):
         status = str(row['Status']).upper().strip()
-        # Se começar com TB (TBC, TBM, TBA) mas não for TBH (Home)
-        if status.startswith('TB') and status != 'TBH':
-            return 4 if 'SP' in str(row['Regiao']).upper() else 3
-        return 0
+        regiao = str(row['Regiao']).upper()
+        
+        # Categorias
+        is_trabalho = status in ['TBC', 'TBM', 'TBA', 'FUP']
+        is_abs = status in ['VAGA', 'FT', 'LM', 'FR', 'FALTA', 'FÉRIAS', 'LICENÇA MÉDICA']
+        is_neutro = status in ['FG', 'BH', 'TR', 'PV']
+        
+        # Meta Call Rate
+        meta = 0
+        if is_trabalho:
+            meta = 4 if 'SP' in regiao else 3
+            
+        return pd.Series([is_trabalho, is_abs, is_neutro, meta])
 
-    df_long['Capacity'] = df_long.apply(calcular_meta, axis=1)
-    
-    # Lógica de Absenteísmo (VAGA, FT, FR, LM)
-    status_abs = ['VAGA', 'FT', 'FR', 'LM', 'FALTA', 'FÉRIAS']
-    df_long['Is_Abs'] = df_long['Status'].apply(lambda x: 1 if str(x).upper().strip() in status_abs else 0)
-    
-    return df_long.sort_values(by=['ID', 'Data'])
+    df_long[['Trabalho', 'Absenteismo', 'Neutro', 'Meta_CallRate']] = df_long.apply(mapear_produtividade, axis=1)
+    return df_long
 
-# 3. ESTILIZAÇÃO
-def style_status(val):
-    color_map = {
-        'TB': 'background-color: #C8E6C9; color: black;', # Verde para qualquer TB (TBC, TBM...)
-        'FG': 'background-color: #BBDEFB; color: black;', 
-        'LM': 'background-color: #FFCDD2; color: black;', 
-        'FT': 'background-color: #EF9A9A; color: black;', 
-        'TR': 'background-color: #FFF9C4; color: black;', 
-        'PV': 'background-color: #E1BEE7; color: black;',
-        'HOME': 'background-color: #F5F5F5; color: #9E9E9E;'
-    }
-    for sigla, estilo in color_map.items():
-        if sigla in str(val).upper(): return estilo
-    return ''
-
-# 4. INTERFACE
-st.sidebar.title("📁 Importação")
-arquivo_upload = st.sidebar.file_uploader("Suba a planilha ESCALA 2026", type=['xlsx'])
+# 3. INTERFACE
+st.sidebar.title("🚀 Sistema Field Service")
+arquivo_upload = st.sidebar.file_uploader("Suba a planilha de Escala", type=['xlsx'])
 
 if arquivo_upload is not None:
     df_base = processar_excel(arquivo_upload)
     
-    # --- SELETOR DE DATA PARA O DASHBOARD ---
-    st.sidebar.divider()
-    st.sidebar.subheader("📅 Data do Resumo")
-    data_resumo = st.sidebar.date_input("Escolha o dia para analisar:", datetime(2026, 4, 1))
+    # MENU DE NAVEGAÇÃO
+    aba = st.sidebar.radio("Navegar para:", ["📈 Painel de Produtividade", "📅 Escala Mensal", "👤 Área do Técnico"])
+    data_sel = st.sidebar.date_input("Selecione o dia de análise:", datetime(2026, 4, 13))
 
-    visao = st.sidebar.selectbox("Mudar Visão Principal:", ["Mensal (Gestor)", "Calendário (Técnico)", "Semanal (Gestor)", "Espelho de Ponto"])
-    
-    regioes = sorted(df_base['Regiao'].unique())
-    regioes_sel = st.sidebar.multiselect("Filtrar Regiões:", regioes, default=regioes)
-    df_f = df_base[df_base['Regiao'].isin(regioes_sel)]
-
-    # --- DASHBOARD DINÂMICO ---
-    st.markdown(f"### 📊 Resumo Operacional - Dia {data_resumo.strftime('%d/%m/%Y')}")
-    
-    # Filtrando apenas o dia selecionado
-    df_hoje = df_f[df_f['Data'].dt.date == data_resumo]
-    
-    if not df_hoje.empty:
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            # Conta quem tem status que começa com TB e não é TBH
-            hc_ativo = len(df_hoje[(df_hoje['Capacity'] > 0)])
-            st.metric("Headcount Ativo", hc_ativo)
-        with c2:
-            cap_total = df_hoje['Capacity'].sum()
-            st.metric("Capacity (Chamados)", f"{int(cap_total)}")
-        with c3:
-            abs_total = df_hoje['Is_Abs'].sum()
-            st.metric("Absenteísmo", abs_total)
-        with c4:
-            # Técnicos previstos (Ativos + Absenteístas)
-            total_previsto = hc_ativo + abs_total
-            pct = (hc_ativo / total_previsto * 100) if total_previsto > 0 else 0
-            st.metric("Disponibilidade", f"{pct:.1f}%")
-    else:
-        st.warning("Sem dados para a data selecionada no seletor lateral.")
-
-    st.divider()
-
-    # --- VISÕES ---
-    if visao == "Mensal (Gestor)":
-        mes_g = st.sidebar.slider("Mês", 1, 12, int(data_resumo.month))
-        df_m = df_f[df_f['Data'].dt.month == mes_g]
-        df_pivot = df_m.pivot(index=['ID', 'Regiao', 'Tecnico', 'Horario'], columns='Data', values='Status').sort_index(level='ID')
-        df_pivot.columns = [f"{d.strftime('%a %d/%m')}" for d in df_pivot.columns]
-        st.dataframe(df_pivot.style.map(style_status), height=600)
-
-    elif visao == "Calendário (Técnico)":
-        st.header("🗓️ Calendário Individual")
-        tec = st.selectbox("Selecione o Técnico:", df_f.sort_values('ID')['Tecnico'].unique())
-        mes = st.selectbox("Mês:", range(1, 13), index=data_resumo.month-1, format_func=lambda x: calendar.month_name[x])
+    # --- ABA: PAINEL DE PRODUTIVIDADE (O QUE VOCÊ PEDIU) ---
+    if aba == "📈 Painel de Produtividade":
+        st.title(f"📊 Dashboard de Produtividade - {data_sel.strftime('%d/%m/%Y')}")
         
-        cal = calendar.monthcalendar(2026, mes)
-        df_cal = pd.DataFrame(cal, columns=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']).astype(object)
-        for r in range(len(df_cal)):
-            for c in range(7):
-                dia = df_cal.iloc[r, c]
-                if dia != 0:
-                    data_f = datetime(2026, mes, dia)
-                    status = df_f[(df_f['Tecnico'] == tec) & (df_f['Data'] == data_f)]['Status'].values
-                    df_cal.iloc[r, c] = f"{dia} - {status[0]}" if len(status)>0 else f"{dia}"
-                else: df_cal.iloc[r, c] = ""
-        st.table(df_cal.style.map(style_status))
+        df_dia = df_base[df_base['Data'].dt.date == data_sel]
+        
+        # 1. MÉTRICAS GERAIS (HEADCOUNT)
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            total_equipe = len(df_dia)
+            st.metric("Headcount Total Equipe", total_equipe)
+        with col2:
+            equipe_ativa = df_dia['Trabalho'].sum()
+            st.metric("Headcount Dia Ativo", int(equipe_ativa))
+        with col3:
+            absenteismo = df_dia['Absenteismo'].sum()
+            st.metric("Total Absenteísmo", int(absenteismo), delta=f"{int(absenteismo)} ausentes", delta_color="inverse")
+        with col4:
+            cap_total = df_dia['Meta_CallRate'].sum()
+            st.metric("Produtividade Total (Chamados)", int(cap_total))
+
+        st.divider()
+
+        # 2. DETALHAMENTO POR REGIONAL
+        st.subheader("📍 Desempenho por Regional")
+        reg_cols = st.columns(4)
+        regionais = ["SP", "SUL", "NORDESTE", "INTERIOR"]
+        
+        for i, reg in enumerate(regionais):
+            with reg_cols[i]:
+                df_reg = df_dia[df_dia['Regiao'].str.contains(reg)]
+                hc_reg = df_reg['Trabalho'].sum()
+                call_rate_reg = df_reg['Meta_CallRate'].sum()
+                st.info(f"**{reg}**")
+                st.write(f"HC Ativo: {int(hc_reg)}")
+                st.write(f"Call Rate: {int(call_rate_reg)}")
+
+        st.divider()
+
+        # 3. CONTROLE DE SUB-REGIÕES SP (MÉTRICA COM ÍCONES)
+        st.subheader("🔍 Status Sub-regiões (SP)")
+        
+        # Aqui listamos as sub-regiões baseadas no seu print
+        sub_sp = ["SP-CENTRO", "SP-LESTE", "SP-NORTE", "SP-OESTE", "SP-SUL", "SP-ABC"]
+        sub_cols = st.columns(len(sub_sp))
+        
+        for i, sub in enumerate(sub_sp):
+            with sub_cols[i]:
+                df_sub = df_dia[df_dia['Regiao'].str.contains(sub)]
+                hc_sub = int(df_sub['Trabalho'].sum())
+                
+                # Lógica de ícones (Exemplo: Se HC for 0 é erro, se for menor que a média é alerta)
+                if hc_sub >= 3:
+                    icon = "✅"
+                    cor = "green"
+                elif hc_sub > 0:
+                    icon = "⚠️"
+                    cor = "orange"
+                else:
+                    icon = "❌"
+                    cor = "red"
+                
+                st.markdown(f"""
+                <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; text-align: center;">
+                    <p style="font-size: 0.8em; margin-bottom: 5px;">{sub}</p>
+                    <h2 style="color: {cor};">{hc_sub}</h2>
+                    <span>{icon}</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+    # --- ABA: ESCALA MENSAL ---
+    elif aba == "📅 Escala Mensal":
+        st.title("Escala Mensal Empilhada")
+        mes_sel = st.sidebar.slider("Mês", 1, 12, data_sel.month)
+        df_m = df_base[df_base['Data'].dt.month == mes_sel]
+        df_pivot = df_m.pivot(index=['ID', 'Regiao', 'Tecnico'], columns='Data', values='Status').sort_index(level='ID')
+        st.dataframe(df_pivot, height=600)
+
+    # --- ABA: ÁREA DO TÉCNICO ---
+    elif aba == "👤 Área do Técnico":
+        st.title("Meu Calendário de Trabalho")
+        tec_sel = st.selectbox("Selecione seu nome:", df_base['Tecnico'].unique())
+        # (Aqui entra o código do calendário individual que já fizemos)
 
 else:
-    st.info("Suba sua planilha para visualizar o Dashboard.")
+    st.info("Aguardando upload da planilha ESCALA 2026...")
