@@ -102,4 +102,71 @@ if arquivo:
         m1.metric("Headcount Ativo", int(df_dia['Is_Ativo'].sum()))
         m2.metric("Capacity Total", int(df_dia['Meta_CR'].sum()))
         m3.metric("Absenteísmo", int(df_dia['Is_Abs'].sum()))
-        m4.metric("% Eficiência", f"{(df_dia['Is_Ativo'].sum() / (df_dia['Is_
+        m4.metric("% Eficiência", f"{(df_dia['Is_Ativo'].sum() / (df_dia['Is_Ativo'].sum() + df_dia['Is_Abs'].sum()) * 100):.1f}%" if (df_dia['Is_Ativo'].sum() + df_dia['Is_Abs'].sum()) > 0 else "0%")
+
+        st.divider()
+        
+        # Tabela por Regional (Ordem solicitada: SP, Interior, Sul, Nordeste)
+        st.subheader("📍 Detalhamento por Regional")
+        ordem_reg = ['SÃO PAULO', 'INTERIOR', 'SUL', 'NORDESTE']
+        cols = st.columns(4)
+        
+        for i, r_nome in enumerate(ordem_reg):
+            with cols[i]:
+                df_reg_total = df_dia[df_dia['Grupo_Regiao'] == r_nome]
+                hc = int(df_reg_total['Is_Ativo'].sum())
+                cr = int(df_reg_total['Meta_CR'].sum())
+                
+                st.markdown(f"""
+                <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; text-align: center; border-left: 5px solid #ff4b4b;">
+                    <h4 style="margin:0;">{r_nome}</h4>
+                    <hr>
+                    <p style="margin:0;">HC Ativo: <b>{hc}</b></p>
+                    <p style="margin:0; font-size: 1.2em; color: #2e7d32;">Call Rate: <b>{cr}</b></p>
+                </div>
+                """, unsafe_allow_html=True)
+
+    # --- 2. ESCALA SEMANAL ---
+    elif menu == "📅 Escala Semanal":
+        data_ini = st.sidebar.date_input("Início da semana:", datetime(2026, 4, 13))
+        df_s = df_f[(df_f['Data'].dt.date >= data_ini) & (df_f['Data'].dt.date <= data_ini + timedelta(days=6))]
+        df_p = df_s.pivot(index=['ID', 'Regiao', 'Tecnico', 'Horario'], columns='Data', values='Status').sort_index(level='ID')
+        df_p.columns = [f"{d.strftime('%a %d/%m')}" for d in df_p.columns]
+        st.dataframe(df_p.style.map(style_status), height=600)
+
+    # --- 3. ESCALA MENSAL ---
+    elif menu == "📆 Escala Mensal":
+        mes = st.sidebar.slider("Mês", 1, 12, 4)
+        df_m = df_f[df_f['Data'].dt.month == mes]
+        df_p = df_m.pivot(index=['ID', 'Regiao', 'Tecnico', 'Horario'], columns='Data', values='Status').sort_index(level='ID')
+        df_p.columns = [f"{d.strftime('%d/%m')}" for d in df_p.columns]
+        st.dataframe(df_p.style.map(style_status), height=600)
+
+    # --- 4. CALENDÁRIO DO TÉCNICO ---
+    elif menu == "👤 Calendário do Técnico":
+        tec = st.selectbox("Técnico:", sorted(df_f['Tecnico'].unique()))
+        mes = st.selectbox("Mês:", range(1, 13), index=3, format_func=lambda x: calendar.month_name[x])
+        cal = calendar.monthcalendar(2026, mes)
+        df_cal = pd.DataFrame(cal, columns=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']).astype(object)
+        for r in range(len(df_cal)):
+            for c in range(7):
+                dia = df_cal.iloc[r, c]
+                if dia != 0:
+                    data_f = datetime(2026, mes, dia)
+                    stat = df_base[(df_base['Tecnico'] == tec) & (df_base['Data'] == data_f)]['Status'].values
+                    df_cal.iloc[r, c] = f"{dia} - {stat[0]}" if len(stat)>0 else f"{dia}"
+                else: df_cal.iloc[r, c] = ""
+        st.table(df_cal.style.map(style_status))
+
+    # --- 5. ESPELHO DE PONTO (28-27) ---
+    elif menu == "📋 Espelho de Ponto":
+        tec = st.selectbox("Técnico:", sorted(df_f['Tecnico'].unique()))
+        mes_f = st.sidebar.selectbox("Mês de Fechamento (Fim dia 27):", range(1, 13), index=3)
+        fim = datetime(2026, mes_f, 27)
+        ini = (fim - timedelta(days=30)).replace(day=28)
+        df_p = df_base[(df_base['Data'] >= ini) & (df_base['Data'] <= fim) & (df_base['Tecnico'] == tec)].copy()
+        df_p['Dia'] = df_p['Data'].dt.strftime('%a %d/%m')
+        st.table(df_p[['Dia', 'Status']].set_index('Dia').style.map(style_status))
+
+else:
+    st.info("Suba sua planilha para ativar o sistema.")
