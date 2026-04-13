@@ -213,31 +213,20 @@ if arquivo:
     # -------------------------------------------------------------------------
     # VISÃO 5: CALENDÁRIO DO TÉCNICO (GRID VISUAL)
     # -------------------------------------------------------------------------
-    elif menu == "👤 Área do Técnico":
-        st.title("Meu Calendário Mensal")
-        lista_tecs = sorted(df_base['Tecnico'].unique())
-        tec_escolha = st.selectbox("Busque seu nome:", lista_tecs)
-        mes_escolha = st.selectbox("Escolha o Mês:", range(1, 13), index=int(data_sel.month)-1, format_func=lambda x: calendar.month_name[x])
-        
-        # Gerar Matriz
-        ano_atual = df_base['Data'].dt.year.max()
-        cal_matriz = calendar.monthcalendar(int(ano_atual), mes_escolha)
-        df_grid = pd.DataFrame(cal_matriz, columns=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']).astype(object)
-        
-        # Preenchimento robusto
-        for r in range(len(df_grid)):
+    elif menu == "👤 Calendário do Técnico":
+        tec = st.selectbox("Selecione o Técnico:", sorted(df_f['Tecnico'].unique()))
+        mes = st.selectbox("Mês:", range(1, 13), index=3, format_func=lambda x: calendar.month_name[x])
+        cal = calendar.monthcalendar(2026, mes)
+        df_cal = pd.DataFrame(cal, columns=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']).astype(object)
+        for r in range(len(df_cal)):
             for c in range(7):
-                dia_num = df_grid.iloc[r, c]
-                if dia_num != 0:
-                    data_alvo = datetime(int(ano_atual), mes_escolha, dia_num).date()
-                    # Busca na base filtrada pelo tecnico e data
-                    match = df_base[(df_base['Tecnico'] == tec_escolha) & (df_base['Data'].dt.date == data_alvo)]
-                    status_text = match['Status'].values[0] if not match.empty else "N/A"
-                    df_grid.iloc[r, c] = f"{dia_num} - {status_text}"
-                else:
-                    df_grid.iloc[r, c] = ""
-        
-        st.table(df_grid.style.map(style_status))
+                dia = df_cal.iloc[r, c]
+                if dia != 0:
+                    data_f = datetime(2026, mes, dia)
+                    res = df_base[(df_base['Tecnico'] == tec) & (df_base['Data'] == data_f)]['Status'].values
+                    df_cal.iloc[r, c] = f"{dia} - {res[0]}" if len(res)>0 else f"{dia}"
+                else: df_cal.iloc[r, c] = ""
+        st.table(df_cal.style.map(style_status))
 
     # -------------------------------------------------------------------------
     # VISÃO 6: ESPELHO DE PONTO (28-27)
