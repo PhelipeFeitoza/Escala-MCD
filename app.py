@@ -41,7 +41,8 @@ def processar_excel(file):
     
     # Transformação em Formato Longo (Técnico | Data | Status)
     df_long = df_unido.melt(id_vars=['ID', 'Regiao', 'Horario', 'Tecnico'], var_name='Data_Bruta', value_name='Status')
-    df_long['Data'] = pd.to_datetime(df_long['Data_Bruta'], errors='coerce')
+    # Normalizamos a data para remover qualquer resquício de hora
+    df_long['Data'] = pd.to_datetime(df_long['Data_Bruta'], errors='coerce').dt.normalize()
     df_long = df_long.dropna(subset=['Data'])
     
     # REGRAS DE NEGÓCIO PARA O DASHBOARD
@@ -50,23 +51,19 @@ def processar_excel(file):
         reg = str(row['Regiao'])
         nome = str(row['Tecnico']).upper()
         
-        # 1. Grupo de Regional (Blindagem usando o hífen)
         if 'INT-' in reg or 'INTERIOR' in reg: grupo = 'INTERIOR'
         elif 'NOR-' in reg: grupo = 'NORDESTE'
         elif 'SUL-' in reg: grupo = 'SUL'
         elif 'SP-' in reg: grupo = 'SÃO PAULO'
         else: grupo = 'OUTROS'
         
-        # 2. Exclusão de Gestão, N3 e FUP da contagem ativa
         is_gestao = any(x in nome for x in ['SUPERVISOR', 'N3', 'COORDENADOR', 'GESTOR', 'BACKOFFICE'])
         is_fup = (st_val == 'FUP')
         
-        # 3. Categorização para Dashboard
         is_trabalho = st_val in ['TB', 'TBC', 'TBM', 'TBA'] and not is_gestao and not is_fup
         is_abs = st_val in ['VAGA', 'FT', 'LM', 'FR', 'FALTA', 'FÉRIAS', 'LICENÇA MÉDICA']
         is_folga_bh = st_val in ['FG', 'BH', 'FOLGA']
         
-        # 4. Cálculo de Capacity (SP=4, Outros=3)
         cr = 0
         if is_trabalho:
             cr = 4 if grupo == 'SÃO PAULO' else 3
@@ -78,7 +75,6 @@ def processar_excel(file):
     
     return df_long.sort_values(by=['ID', 'Data'])
 
-# Função de Cor baseada na Legenda enviada
 def style_status(val):
     if not isinstance(val, str): return ''
     v = val.upper().strip()
@@ -89,9 +85,9 @@ def style_status(val):
     elif 'LM' in v or 'LICENÇA MÉDICA' in v: bg = "#00ffff"
     elif 'FR' in v or 'FÉRIAS' in v: bg = "#cc99ff"
     elif 'FG' in v or 'FOLGA' in v: bg = "#5b9bd5"
-    elif 'BH' in v == 'BH': bg = "#deeaf6"
+    elif v == 'BH': bg = "#deeaf6"
     elif 'TR' in v or 'TREINAMENTO' in v: bg = "#ffeb3b"
-    elif 'PV' in v == 'PV': bg = "#c5e0b4"
+    elif v == 'PV': bg = "#c5e0b4"
     elif any(x in v for x in ['TB', 'TBC', 'TBM', 'TBA']): bg = "#e2efda"
     elif 'TBH' in v: bg = "#ebf1de"
     elif 'HE' in v: bg = "#f4b084"
@@ -107,12 +103,8 @@ if arquivo:
     df_base = processar_excel(arquivo)
     
     menu = st.sidebar.radio("Navegar entre visões:", [
-        "📈 Painel de Produtividade", 
-        "📅 Escala Semanal", 
-        "📆 Escala Mensal", 
-        "🗓️ Escala Anual",
-        "👤 Área do Técnico", 
-        "📋 Espelho de Ponto"
+        "📈 Painel de Produtividade", "📅 Escala Semanal", "📆 Escala Mensal", 
+        "🗓️ Escala Anual", "👤 Área do Técnico", "📋 Espelho de Ponto"
     ])
     
     data_sel = st.sidebar.date_input("Data de referência:", df_base['Data'].min())
@@ -123,71 +115,39 @@ if arquivo:
         df_dash = df_dia[df_dia['Is_Gestao'] == False]
         
         c_res, c_det = st.columns([1, 2.5])
-        
         with c_res:
             st.markdown('<div class="header-abs">INDICADORES DE EQUIPE</div>', unsafe_allow_html=True)
             v = len(df_dash[df_dash['ST_LIMPO'] == 'VAGA'])
             f = len(df_dash[df_dash['ST_LIMPO'].isin(['FT', 'FALTA'])])
             l = len(df_dash[df_dash['ST_LIMPO'].isin(['LM', 'LICENÇA MÉDICA'])])
             fr = len(df_dash[df_dash['ST_LIMPO'].isin(['FR', 'FÉRIAS'])])
-            tot_abs = v + f + l + fr
-            
-            st.markdown(f'<div class="metric-row header-abs">TOTAL ABSENTEÍSMO! <span>{tot_abs}</span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-row header-abs">TOTAL ABSENTEÍSMO! <span>{v+f+l+fr}</span></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="metric-row vaga">VAGA <span>{v}</span></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="metric-row falta">FALTA <span>{f}</span></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="metric-row lm">LICENÇA MÉDICA <span>{l}</span></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="metric-row ferias">FÉRIAS <span>{fr}</span></div>', unsafe_allow_html=True)
-            
             folgas = int(df_dash['Is_Folga'].sum())
-            tr = len(df_dash[df_dash['ST_LIMPO'].isin(['TR', 'TREINAMENTO'])])
-            pv = len(df_dash[df_dash['ST_LIMPO'] == 'PV'])
             ativos = int(df_dash['Is_Ativo'].sum())
-            
-            st.markdown(f'<div class="metric-row folga">FOLGA / BH <span>{folgas}</span></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-row tr">TREINAMENTO <span>{tr}</span></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-row pv">PREVENTIVA <span>{pv}</span></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-row trabalhando">EQUIPE TRABALHANDO <span>{ativos}</span></div>', unsafe_allow_html=True)
-            
             hc_dia = len(df_dash) - folgas
-            pct_ativa = (ativos / hc_dia * 100) if hc_dia > 0 else 0
-            st.markdown(f'<div class="metric-row headcount">HEADCOUNT TOTAL DO DIA <span>{hc_dia}</span></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-row headcount">HEADCOUNT DIA ATIVO <span>{ativos}</span></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-row headcount">% EQUIPE ATIVA <span>{pct_ativa:.1f}%</span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-row folga">FOLGA / BH <span>{folgas}</span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-row trabalhando">EQUIPE TRABALHANDO <span>{ativos}</span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-row headcount">HC TOTAL DO DIA <span>{hc_dia}</span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-row headcount">HC DIA ATIVO <span>{ativos}</span></div>', unsafe_allow_html=True)
 
         with c_det:
             total_cr = int(df_dash['CR'].sum())
             st.markdown(f'<div class="metric-row produtividade">PRODUTIVIDADE TOTAL (CAPACITY) <span>{total_cr}</span></div>', unsafe_allow_html=True)
-            
             regs = [('SÃO PAULO', 'SÃO PAULO'), ('INTERIOR', 'INTERIOR'), ('SUL', 'SUL'), ('NORDESTE', 'NORDESTE')]
             for label, busca in regs:
                 df_r = df_dash[df_dash['Grupo_Regiao'] == busca]
-                h_r = int(df_r['Is_Ativo'].sum())
-                c_r = int(df_r['CR'].sum())
-                p_r = (c_r / total_cr * 100) if total_cr > 0 else 0
-                
+                h_r, c_r = int(df_r['Is_Ativo'].sum()), int(df_r['CR'].sum())
                 ca, cb, cc = st.columns([1.2, 1, 1])
                 ca.markdown(f'<div class="metric-row folga">HEADCOUNT {label} <span>{h_r}</span></div>', unsafe_allow_html=True)
                 cb.markdown(f'<div class="metric-row headcount">CALL RATE {label} <span>{c_r}</span></div>', unsafe_allow_html=True)
-                cc.markdown(f'<div class="metric-row tr">% CALL RATE {label} <span>{p_r:.1f}%</span></div>', unsafe_allow_html=True)
-
-            st.divider()
-            st.subheader("📍 Monitoramento Sub-regiões SP (Degrade)")
-            sub_sp = {"SP-CENTRO": 4, "SP-LESTE": 8, "SP-NORTE": 6, "SP-OESTE": 8, "SP-SUL": 7, "SP-ABC": 4}
-            
-            def calc_color(at, mt):
-                ratio = at/mt if mt > 0 else 0
-                if ratio >= 1.0: return "#c8e6c9", "✅"
-                if ratio >= 0.5: return "#fff9c4", "⚠️"
-                return "#ffcdd2", "🚨"
-            
-            c_sp = st.columns(3)
-            for i, (sub, meta) in enumerate(sub_sp.items()):
-                val = int(df_dash[(df_dash['Grupo_Regiao'] == 'SÃO PAULO') & (df_dash['Regiao'].str.contains(sub))]['Is_Ativo'].sum())
-                cor, icon = calc_color(val, meta)
-                c_sp[i%3].markdown(f'<div class="sub-sp-card" style="background-color: {cor};"><span>{icon} {sub}</span><span>{val} / {meta}</span></div>', unsafe_allow_html=True)
+                pct = (c_r / total_cr * 100) if total_cr > 0 else 0
+                cc.markdown(f'<div class="metric-row tr">% CALL RATE {label} <span>{pct:.1f}%</span></div>', unsafe_allow_html=True)
 
     elif menu == "📅 Escala Semanal":
-        st.title("Escala Semanal Empilhada")
         data_ini = st.sidebar.date_input("Início da semana:", data_sel)
         df_s = df_base[(df_base['Data'].dt.date >= data_ini) & (df_base['Data'].dt.date <= data_ini + timedelta(days=6))]
         df_p = df_s.pivot(index=['ID', 'Regiao', 'Tecnico', 'Horario'], columns='Data', values='Status').sort_index(level='ID')
@@ -195,7 +155,6 @@ if arquivo:
         st.dataframe(df_p.style.map(style_status), use_container_width=True)
 
     elif menu == "📆 Escala Mensal":
-        st.title("Escala Mensal Empilhada")
         mes_sel = st.sidebar.slider("Selecione o Mês:", 1, 12, int(data_sel.month))
         df_m = df_base[df_base['Data'].dt.month == mes_sel]
         df_p = df_m.pivot(index=['ID', 'Regiao', 'Tecnico', 'Horario'], columns='Data', values='Status').sort_index(level='ID')
@@ -203,49 +162,49 @@ if arquivo:
         st.dataframe(df_p.style.map(style_status), height=600, use_container_width=True)
 
     elif menu == "🗓️ Escala Anual":
-        st.title("Escala Anual Completa")
         df_anual = df_base.pivot(index=['ID', 'Regiao', 'Tecnico'], columns='Data', values='Status').sort_index(level='ID')
         st.dataframe(df_anual.style.map(style_status), height=600)
 
     elif menu == "👤 Área do Técnico":
         st.title("Meu Calendário Mensal")
-        lista_tecs = sorted(df_base['Tecnico'].unique())
-        tec_escolha = st.selectbox("Busque seu nome:", lista_tecs)
+        tec_escolha = st.selectbox("Busque seu nome:", sorted(df_base['Tecnico'].unique()))
         mes_escolha = st.selectbox("Escolha o Mês:", range(1, 13), index=int(data_sel.month)-1, format_func=lambda x: calendar.month_name[x])
         
         ano_atual = df_base['Data'].dt.year.max()
         cal_matriz = calendar.monthcalendar(int(ano_atual), mes_escolha)
         df_grid = pd.DataFrame(cal_matriz, columns=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']).astype(object)
         
-        # Filtramos a base do técnico ANTES do loop para dar performance e garantir o reconhecimento
-        df_tec = df_base[df_base['Tecnico'] == tec_escolha]
+        # BUSCA CORRIGIDA: Filtramos a base do técnico e resetamos o índice para garantir a busca
+        df_tec = df_base[df_base['Tecnico'] == tec_escolha].copy()
         
         for r in range(len(df_grid)):
             for c in range(7):
                 dia_num = df_grid.iloc[r, c]
                 if dia_num != 0:
-                    # COMPARÇÃO CORRIGIDA: Criamos um Timestamp do Pandas para bater com a base
+                    # FORÇANDO A COMPARAÇÃO DE DATA PURA
                     data_alvo = pd.Timestamp(int(ano_atual), mes_escolha, dia_num)
+                    # Procuramos o status para esse dia exato
                     match = df_tec[df_tec['Data'] == data_alvo]
                     
-                    status_text = match['Status'].values[0] if not match.empty else "---"
-                    df_grid.iloc[r, c] = f"{dia_num} - {status_text}"
+                    if not match.empty:
+                        status_text = str(match['Status'].values[0])
+                        df_grid.iloc[r, c] = f"{dia_num} - {status_text}"
+                    else:
+                        df_grid.iloc[r, c] = f"{dia_num} - N/D"
                 else:
                     df_grid.iloc[r, c] = ""
         
         st.table(df_grid.style.map(style_status))
 
     elif menu == "📋 Espelho de Ponto":
-        st.title("Conferência para Espelho de Ponto")
         tec_ponto = st.selectbox("Selecione o Técnico:", sorted(df_base['Tecnico'].unique()))
-        mes_f = st.sidebar.selectbox("Mês de Fechamento (Fim no dia 27):", range(1, 13), index=int(data_sel.month)-1)
-        hoje = datetime(2026, mes_f, 27)
-        inicio = (hoje - timedelta(days=31)).replace(day=28)
-        st.subheader(f"Período: {inicio.strftime('%d/%m/%Y')} a {hoje.strftime('%d/%m/%Y')}")
-        df_ponto = df_base[(df_base['Tecnico'] == tec_ponto) & (df_base['Data'].dt.date >= inicio.date()) & (df_base['Data'].dt.date <= hoje.date())]
+        mes_f = st.sidebar.selectbox("Mês de Fechamento (Fim dia 27):", range(1, 13), index=int(data_sel.month)-1)
+        hoje_p = datetime(int(df_base['Data'].dt.year.max()), mes_f, 27)
+        inicio_p = (hoje_p - timedelta(days=31)).replace(day=28)
+        df_ponto = df_base[(df_base['Tecnico'] == tec_ponto) & (df_base['Data'] >= pd.Timestamp(inicio_p)) & (df_base['Data'] <= pd.Timestamp(hoje_p))]
         df_ponto = df_ponto.copy()
         df_ponto['Dia'] = df_ponto['Data'].dt.strftime('%a %d/%m')
         st.table(df_ponto[['Dia', 'Status']].set_index('Dia').style.map(style_status))
 
 else:
-    st.info("👋 Bem-vindo! Por favor, faça o upload da sua planilha de escala para começar.")
+    st.info("👋 Por favor, faça o upload da sua planilha de escala.")
