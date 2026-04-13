@@ -139,28 +139,35 @@ if arquivo:
         st.dataframe(df_anual.style.map(style_status), height=600)
 
     elif menu == "👤 Área do Técnico":
-        st.title("Meu Calendário Mensal")
-        tec_escolha = st.selectbox("Busque seu nome:", sorted(df_base['Tecnico'].unique()))
-        mes_escolha = st.selectbox("Escolha o Mês:", range(1, 13), index=int(data_sel.month)-1, format_func=lambda x: calendar.month_name[x])
-        
-        # ALINHAMENTO DO CALENDÁRIO: 01/04/2026 = QUARTA
-        calendar.setfirstweekday(calendar.MONDAY)
-        ano_atual = df_base['Data'].dt.year.max()
-        cal_matriz = calendar.monthcalendar(int(ano_atual), mes_escolha)
-        df_grid = pd.DataFrame(cal_matriz, columns=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']).astype(object)
-        
-        df_tec_mes = df_base[(df_base['Tecnico'] == tec_escolha) & (df_base['Data'].dt.month == mes_escolha)]
-        
-        for r in range(len(df_grid)):
-            for c in range(7):
-                dia_num = df_grid.iloc[r, c]
-                if dia_num != 0:
-                    dia_match = df_tec_mes[df_tec_mes['Data'].dt.day == dia_num]
-                    status = str(dia_match['Status'].values[0]) if not dia_match.empty else "---"
-                    df_grid.iloc[r, c] = f"{dia_num} - {status}"
-                else:
-                    df_grid.iloc[r, c] = ""
-        st.table(df_grid.style.map(style_status))
+    st.title("Meu Calendário Mensal")
+    tec_escolha = st.selectbox("Busque seu nome:", sorted(df_base['Tecnico'].unique()))
+    mes_escolha = st.selectbox("Escolha o Mês:", range(1, 13), index=int(data_sel.month)-1, format_func=lambda x: calendar.month_name[x])
+
+    # Garantir que o calendário começa na segunda-feira
+    calendar.setfirstweekday(calendar.MONDAY)
+
+    # Pegar o ano da data selecionada (ou o máximo do DF)
+    ano_atual = int(data_sel.year)
+
+    # Gerar matriz do mês
+    cal_matriz = calendar.monthcalendar(ano_atual, mes_escolha)
+    df_grid = pd.DataFrame(cal_matriz, columns=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']).astype(object)
+
+    # Filtrar dados do técnico para o mês
+    df_tec_mes = df_base[(df_base['Tecnico'] == tec_escolha) & (df_base['Data'].dt.month == mes_escolha) & (df_base['Data'].dt.year == ano_atual)]
+
+    # Preencher a matriz com status
+    for r in range(len(df_grid)):
+        for c in range(7):
+            dia_num = df_grid.iloc[r, c]
+            if dia_num != 0:
+                dia_match = df_tec_mes[df_tec_mes['Data'].dt.day == dia_num]
+                status = str(dia_match['Status'].values[0]) if not dia_match.empty else "---"
+                df_grid.iloc[r, c] = f"{dia_num} - {status}"
+            else:
+                df_grid.iloc[r, c] = ""
+
+    st.table(df_grid.style.map(style_status))
 
     elif menu == "📋 Espelho de Ponto":
         tec_ponto = st.selectbox("Técnico:", sorted(df_base['Tecnico'].unique()))
