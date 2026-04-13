@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta
 import calendar
+import os
 
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(page_title="Command Center - Field Service McDonalds", layout="wide")
@@ -23,13 +24,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 2. PROCESSAMENTO DE DADOS (LOGICA REVISADA)
+# 2. PROCESSAMENTO DE DADOS (LOGICA AUTOMATIZADA)
 @st.cache_data
-def processar_excel(file):
-    df = pd.read_excel(file, engine='openpyxl')
+def processar_excel(file_path):
+    df = pd.read_excel(file_path, engine='openpyxl')
     info_cols = df.iloc[:, [0, 2, 3, 4]].copy()
     info_cols.columns = ['ID', 'Regiao', 'Horario', 'Tecnico']
-    
     info_cols['Regiao'] = info_cols['Regiao'].astype(str).str.upper().str.strip()
     info_cols['Tecnico'] = info_cols['Tecnico'].astype(str).str.strip()
     
@@ -43,24 +43,22 @@ def processar_excel(file):
         st_val = str(row['Status']).upper().strip()
         reg = str(row['Regiao'])
         nome = str(row['Tecnico']).upper()
-        
         if 'INT-' in reg: grupo = 'INTERIOR'
         elif 'NOR-' in reg: grupo = 'NORDESTE'
         elif 'SUL-' in reg: grupo = 'SUL'
         elif 'SP-' in reg: grupo = 'SÃO PAULO'
         else: grupo = 'OUTROS'
-        
         is_gestao = any(x in nome for x in ['SUPERVISOR', 'N3', 'COORDENADOR', 'GESTOR', 'BACKOFFICE'])
         is_fup = (st_val == 'FUP')
         is_trabalho = st_val in ['TB', 'TBC', 'TBM', 'TBA'] and not is_gestao and not is_fup
         is_abs = st_val in ['VAGA', 'FT', 'LM', 'FR', 'FALTA', 'FÉRIAS', 'LICENÇA MÉDICA']
         is_folga = st_val in ['FG', 'BH', 'FOLGA']
-        
         cr = 0
         if is_trabalho: cr = 4 if grupo == 'SÃO PAULO' else 3
         return pd.Series([st_val, grupo, is_trabalho, is_abs, is_folga, cr, is_gestao])
 
-    df_long[['ST_LIMPO', 'Grupo_Regiao', 'Is_Ativo', 'Is_Abs', 'Is_Folga', 'CR', 'Is_Gestao']] = df_long.apply(mapear_status, axis=1)
+    cols_stats = ['ST_LIMPO', 'Grupo_Regiao', 'Is_Ativo', 'Is_Abs', 'Is_Folga', 'CR', 'Is_Gestao']
+    df_long[cols_stats] = df_long.apply(mapear_status, axis=1)
     return df_long
 
 def style_status(val):
@@ -78,11 +76,13 @@ def style_status(val):
     elif 'HE' in v: bg = "#f4b084"
     return f'background-color: {bg}; color: black; font-weight: bold;'
 
-# 3. INTERFACE PRINCIPAL
-arquivo = st.sidebar.file_uploader("📂 Suba a Planilha ESCALA 2026", type=['xlsx'])
+# 3. CARREGAMENTO AUTOMÁTICO DO GITHUB
+# Nome do arquivo que deve estar no seu repositório
+NOME_ARQUIVO = "ESCALA 2026.xlsx"
 
-if arquivo:
-    df_base = processar_excel(arquivo)
+if os.path.exists(NOME_ARQUIVO):
+    df_base = processar_excel(NOME_ARQUIVO)
+    
     menu = st.sidebar.radio("Navegação:", ["📈 Painel de Produtividade", "📅 Escala Semanal", "📆 Escala Mensal", "🗓️ Escala Anual", "👤 Área do Técnico", "📋 Espelho de Ponto"])
     data_sel = st.sidebar.date_input("Data de referência:", df_base['Data'].min())
     
@@ -143,18 +143,14 @@ if arquivo:
         df_a = df_base.pivot(index=['ID', 'Regiao', 'Tecnico'], columns='Data', values='Status').sort_index(level='ID')
         st.dataframe(df_a.style.map(style_status), height=600)
 
-    # --- VISÃO TÉCNICO: CORRIGIDA ---
     elif menu == "👤 Área do Técnico":
         st.title("Meu Calendário Mensal")
         tec_sel = st.selectbox("Selecione seu nome:", sorted(df_base['Tecnico'].unique()))
-        mes_escolha = st.selectbox("Mês:", range(1, 13), index=int(data_sel.month)-1, format_func=lambda x: calendar.month_name[x])
-        
+        m_escolha = st.selectbox("Mês:", range(1, 13), index=int(data_sel.month)-1, format_func=lambda x: calendar.month_name[x])
         calendar.setfirstweekday(calendar.MONDAY)
-        cal = calendar.monthcalendar(2026, mes_escolha)
+        cal = calendar.monthcalendar(2026, m_escolha)
         df_grid = pd.DataFrame(cal, columns=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']).astype(object)
-        
-        df_tec_mes = df_base[(df_base['Tecnico'] == tec_sel) & (df_base['Data'].dt.month == mes_escolha)]
-        
+        df_tec_mes = df_base[(df_base['Tecnico'] == tec_sel) & (df_base['Data'].dt.month == m_escolha)]
         for r in range(len(df_grid)):
             for c in range(7):
                 dia = df_grid.iloc[r, c]
@@ -173,4 +169,5 @@ if arquivo:
         df_p['D'] = df_p['Data'].dt.strftime('%a %d/%m')
         st.table(df_p[['D', 'Status']].set_index('D').style.map(style_status))
 else:
-    st.info("Suba a planilha para ativar o sistema.")
+    st.error(f"❌ Arquivo '{NOME_ARQUIVO}' não encontrado no repositório GitHub!")
+    st.info("Certifique-se de que o arquivo Excel está na raiz do seu projeto com o nome exato.")
