@@ -11,11 +11,11 @@ st.markdown("""
 <style>
     .metric-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 15px; border-bottom: 1px solid #ccc; font-weight: 800; color: black !important; font-size: 13px; margin-bottom: 2px; border-radius: 4px; }
     .header-abs { background-color: #f4b084; text-align: center; font-weight: 900; font-size: 16px; padding: 10px; color: black !important; border: 1px solid #333; }
-    .vaga { background-color: #d9d9d9; } .falta { background-color: #ff5252; }
-    .lm { background-color: #9bc2e6; } .ferias { background-color: #c5e0b4; }
-    .folga { background-color: #8faadc; } .bh { background-color: #fff2cc; }
-    .tr { background-color: #ffe699; } .pv { background-color: #e2efda; }
-    .trabalhando { background-color: #a9d08e; } .headcount { background-color: #ffd966; }
+    .vaga { background-color: #d9d9d9; } .falta { background-color: #ff0000; }
+    .lm { background-color: #00ffff; } .ferias { background-color: #cc99ff; }
+    .folga { background-color: #5b9bd5; } .bh { background-color: #deeaf6; }
+    .tr { background-color: #ffeb3b; } .pv { background-color: #c5e0b4; }
+    .trabalhando { background-color: #e2efda; } .headcount { background-color: #ffd966; }
     .produtividade { background-color: #7030a0; color: white !important; font-size: 18px; padding: 12px; border-radius: 5px; }
     .sub-sp-card { padding: 12px; border-radius: 8px; border: 1px solid #777; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); color: black !important; font-weight: 900; }
     .stDataFrame { border: 1px solid #ddd; }
@@ -62,7 +62,7 @@ def processar_excel(file):
         is_fup = (st_val == 'FUP')
         
         # 3. Categorização para Dashboard
-        is_trabalho = st_val in ['TBC', 'TBM', 'TBA'] and not is_gestao and not is_fup
+        is_trabalho = st_val in ['TB', 'TBC', 'TBM', 'TBA'] and not is_gestao and not is_fup
         is_abs = st_val in ['VAGA', 'FT', 'LM', 'FR', 'FALTA', 'FÉRIAS', 'LICENÇA MÉDICA']
         is_folga_bh = st_val in ['FG', 'BH', 'FOLGA']
         
@@ -78,16 +78,26 @@ def processar_excel(file):
     
     return df_long.sort_values(by=['ID', 'Data'])
 
-# Função de Cor para as Planilhas (Preto/Negrito Garantido)
+# Função de Cor seguindo fielmente a Paleta da Legenda enviada
 def style_status(val):
     if not isinstance(val, str): return ''
-    v = val.upper()
+    v = val.upper().strip()
     bg = "transparent"
-    if any(s in v for s in ['TBC', 'TBM', 'TBA', 'FUP']): bg = "#C8E6C9"
-    elif 'FG' in v or 'BH' in v: bg = "#BBDEFB"
-    elif 'LM' in v or 'FT' in v: bg = "#FFCDD2"
-    elif 'TR' in v: bg = "#FFE699"
-    elif 'PV' in v: bg = "#E2EFDA"
+    
+    if v == 'VAGA': bg = "#d9d9d9"
+    elif v in ['FT', 'FALTA']: bg = "#ff0000"
+    elif v in ['LM', 'LICENÇA MÉDICA']: bg = "#00ffff"
+    elif v in ['FR', 'FÉRIAS']: bg = "#cc99ff"
+    elif v in ['FG', 'FOLGA']: bg = "#5b9bd5"
+    elif v == 'BH': bg = "#deeaf6"
+    elif v in ['TR', 'TREINAMENTO']: bg = "#ffeb3b"
+    elif v == 'PV': bg = "#c5e0b4"
+    elif v in ['TB', 'TBC', 'TBM', 'TBA']: bg = "#e2efda"
+    elif v == 'TBH': bg = "#ebf1de"
+    elif v == 'HE': bg = "#f4b084"
+    elif 'TARDE' in v: bg = "#fce4d6"
+    elif 'MANHÃ' in v: bg = "#fff2cc"
+    
     return f'background-color: {bg}; color: black; font-weight: bold; border: 0.1px solid #ddd;'
 
 # 3. INTERFACE PRINCIPAL
@@ -107,13 +117,10 @@ if arquivo:
     
     data_sel = st.sidebar.date_input("Data de referência:", df_base['Data'].min())
     
-    # -------------------------------------------------------------------------
-    # VISÃO 1: PAINEL DE PRODUTIVIDADE (O DASHBOARD LEDGER)
-    # -------------------------------------------------------------------------
     if menu == "📈 Painel de Produtividade":
         st.title(f"📊 Dashboard de Produtividade - {data_sel.strftime('%d/%m/%Y')}")
         df_dia = df_base[df_base['Data'].dt.date == data_sel]
-        df_dash = df_dia[df_dia['Is_Gestao'] == False] # Somente técnicos campo
+        df_dash = df_dia[df_dia['Is_Gestao'] == False]
         
         c_res, c_det = st.columns([1, 2.5])
         
@@ -175,14 +182,10 @@ if arquivo:
             
             c_sp = st.columns(3)
             for i, (sub, meta) in enumerate(sub_sp.items()):
-                # Filtro blidado: Somente Grupo SP + a sub-regiao correta
                 val = int(df_dash[(df_dash['Grupo_Regiao'] == 'SÃO PAULO') & (df_dash['Regiao'].str.contains(sub))]['Is_Ativo'].sum())
                 cor, icon = calc_color(val, meta)
                 c_sp[i%3].markdown(f'<div class="sub-sp-card" style="background-color: {cor};"><span>{icon} {sub}</span><span>{val} / {meta}</span></div>', unsafe_allow_html=True)
 
-    # -------------------------------------------------------------------------
-    # VISÃO 2: ESCALA SEMANAL
-    # -------------------------------------------------------------------------
     elif menu == "📅 Escala Semanal":
         st.title("Escala Semanal Empilhada")
         data_ini = st.sidebar.date_input("Início da semana:", data_sel)
@@ -191,9 +194,6 @@ if arquivo:
         df_p.columns = [f"{d.strftime('%a %d/%m')}" for d in df_p.columns]
         st.dataframe(df_p.style.map(style_status), use_container_width=True)
 
-    # -------------------------------------------------------------------------
-    # VISÃO 3: ESCALA MENSAL
-    # -------------------------------------------------------------------------
     elif menu == "📆 Escala Mensal":
         st.title("Escala Mensal Empilhada")
         mes_sel = st.sidebar.slider("Selecione o Mês:", 1, 12, int(data_sel.month))
@@ -202,36 +202,28 @@ if arquivo:
         df_p.columns = [f"{d.strftime('%d/%m')}" for d in df_p.columns]
         st.dataframe(df_p.style.map(style_status), height=600, use_container_width=True)
 
-    # -------------------------------------------------------------------------
-    # VISÃO 4: ESCALA ANUAL
-    # -------------------------------------------------------------------------
     elif menu == "🗓️ Escala Anual":
         st.title("Escala Anual Completa")
         df_anual = df_base.pivot(index=['ID', 'Regiao', 'Tecnico'], columns='Data', values='Status').sort_index(level='ID')
         st.dataframe(df_anual.style.map(style_status), height=600)
 
-    # -------------------------------------------------------------------------
-    # VISÃO 5: CALENDÁRIO DO TÉCNICO (GRID VISUAL)
-    # -------------------------------------------------------------------------
     elif menu == "👤 Área do Técnico":
         st.title("Meu Calendário Mensal")
         lista_tecs = sorted(df_base['Tecnico'].unique())
         tec_escolha = st.selectbox("Busque seu nome:", lista_tecs)
         mes_escolha = st.selectbox("Escolha o Mês:", range(1, 13), index=int(data_sel.month)-1, format_func=lambda x: calendar.month_name[x])
         
-        # Gerar Matriz
         ano_atual = df_base['Data'].dt.year.max()
         cal_matriz = calendar.monthcalendar(int(ano_atual), mes_escolha)
         df_grid = pd.DataFrame(cal_matriz, columns=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']).astype(object)
         
-        # Preenchimento robusto
         for r in range(len(df_grid)):
             for c in range(7):
                 dia_num = df_grid.iloc[r, c]
                 if dia_num != 0:
                     data_alvo = datetime(int(ano_atual), mes_escolha, dia_num).date()
-                    # Busca na base filtrada pelo tecnico e data
-                    match = df_base[(df_base['Tecnico'] == tec_escolha) & (df_base['Data'].dt.date == data_alvo)]
+                    # CORREÇÃO DA BUSCA: Comparando via pd.Timestamp para garantir compatibilidade
+                    match = df_base[(df_base['Tecnico'] == tec_escolha) & (df_base['Data'] == pd.Timestamp(data_alvo))]
                     status_text = match['Status'].values[0] if not match.empty else "N/A"
                     df_grid.iloc[r, c] = f"{dia_num} - {status_text}"
                 else:
@@ -239,23 +231,16 @@ if arquivo:
         
         st.table(df_grid.style.map(style_status))
 
-    # -------------------------------------------------------------------------
-    # VISÃO 6: ESPELHO DE PONTO (28-27)
-    # -------------------------------------------------------------------------
     elif menu == "📋 Espelho de Ponto":
         st.title("Conferência para Espelho de Ponto")
         tec_ponto = st.selectbox("Selecione o Técnico:", sorted(df_base['Tecnico'].unique()))
         mes_f = st.sidebar.selectbox("Mês de Fechamento (Fim no dia 27):", range(1, 13), index=int(data_sel.month)-1)
-        
-        # Lógica 28 do mês anterior ao 27 do atual
         hoje = datetime(2026, mes_f, 27)
         inicio = (hoje - timedelta(days=31)).replace(day=28)
-        
         st.subheader(f"Período: {inicio.strftime('%d/%m/%Y')} a {hoje.strftime('%d/%m/%Y')}")
         df_ponto = df_base[(df_base['Tecnico'] == tec_ponto) & (df_base['Data'].dt.date >= inicio.date()) & (df_base['Data'].dt.date <= hoje.date())]
         df_ponto = df_ponto.copy()
         df_ponto['Dia'] = df_ponto['Data'].dt.strftime('%a %d/%m')
-        
         st.table(df_ponto[['Dia', 'Status']].set_index('Dia').style.map(style_status))
 
 else:
