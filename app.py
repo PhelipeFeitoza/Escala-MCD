@@ -78,23 +78,23 @@ def processar_excel(file):
     
     return df_long.sort_values(by=['ID', 'Data'])
 
-# Função de Cor seguindo fielmente a Paleta da Legenda enviada
+# Função de Cor baseada na Legenda enviada
 def style_status(val):
     if not isinstance(val, str): return ''
     v = val.upper().strip()
     bg = "transparent"
     
-    if v == 'VAGA': bg = "#d9d9d9"
-    elif v in ['FT', 'FALTA']: bg = "#ff0000"
-    elif v in ['LM', 'LICENÇA MÉDICA']: bg = "#00ffff"
-    elif v in ['FR', 'FÉRIAS']: bg = "#cc99ff"
-    elif v in ['FG', 'FOLGA']: bg = "#5b9bd5"
-    elif v == 'BH': bg = "#deeaf6"
-    elif v in ['TR', 'TREINAMENTO']: bg = "#ffeb3b"
-    elif v == 'PV': bg = "#c5e0b4"
-    elif v in ['TB', 'TBC', 'TBM', 'TBA']: bg = "#e2efda"
-    elif v == 'TBH': bg = "#ebf1de"
-    elif v == 'HE': bg = "#f4b084"
+    if 'VAGA' in v: bg = "#d9d9d9"
+    elif 'FT' in v or 'FALTA' in v: bg = "#ff0000"
+    elif 'LM' in v or 'LICENÇA MÉDICA' in v: bg = "#00ffff"
+    elif 'FR' in v or 'FÉRIAS' in v: bg = "#cc99ff"
+    elif 'FG' in v or 'FOLGA' in v: bg = "#5b9bd5"
+    elif 'BH' in v == 'BH': bg = "#deeaf6"
+    elif 'TR' in v or 'TREINAMENTO' in v: bg = "#ffeb3b"
+    elif 'PV' in v == 'PV': bg = "#c5e0b4"
+    elif any(x in v for x in ['TB', 'TBC', 'TBM', 'TBA']): bg = "#e2efda"
+    elif 'TBH' in v: bg = "#ebf1de"
+    elif 'HE' in v: bg = "#f4b084"
     elif 'TARDE' in v: bg = "#fce4d6"
     elif 'MANHÃ' in v: bg = "#fff2cc"
     
@@ -217,14 +217,18 @@ if arquivo:
         cal_matriz = calendar.monthcalendar(int(ano_atual), mes_escolha)
         df_grid = pd.DataFrame(cal_matriz, columns=['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']).astype(object)
         
+        # Filtramos a base do técnico ANTES do loop para dar performance e garantir o reconhecimento
+        df_tec = df_base[df_base['Tecnico'] == tec_escolha]
+        
         for r in range(len(df_grid)):
             for c in range(7):
                 dia_num = df_grid.iloc[r, c]
                 if dia_num != 0:
-                    data_alvo = datetime(int(ano_atual), mes_escolha, dia_num).date()
-                    # CORREÇÃO DA BUSCA: Comparando via pd.Timestamp para garantir compatibilidade
-                    match = df_base[(df_base['Tecnico'] == tec_escolha) & (df_base['Data'] == pd.Timestamp(data_alvo))]
-                    status_text = match['Status'].values[0] if not match.empty else "N/A"
+                    # COMPARÇÃO CORRIGIDA: Criamos um Timestamp do Pandas para bater com a base
+                    data_alvo = pd.Timestamp(int(ano_atual), mes_escolha, dia_num)
+                    match = df_tec[df_tec['Data'] == data_alvo]
+                    
+                    status_text = match['Status'].values[0] if not match.empty else "---"
                     df_grid.iloc[r, c] = f"{dia_num} - {status_text}"
                 else:
                     df_grid.iloc[r, c] = ""
