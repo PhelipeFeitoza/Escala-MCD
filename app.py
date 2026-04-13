@@ -2,43 +2,39 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta
 
-# Configuração da Página
-st.set_page_config(page_title="Gestão de Escala FS", layout="wide")
+# 1. CONFIGURAÇÃO DA PÁGINA
+st.set_page_config(page_title="Escala Field Service", layout="wide")
 
-# --- GERADOR DE DATAS E NOMES (SIMULADO) ---
+# 2. FUNÇÃO PARA GERAR DADOS (SIMULANDO SUA PLANILHA)
 @st.cache_data
-def carregar_dados_base():
+def gerar_dados_ficticios():
     datas = pd.date_range(start='2026-01-01', end='2026-12-31')
-    tecnicos = [f"Técnico {i}" for i in range(1, 81)] # Seus 80 técnicos
+    # Simulando 80 técnicos com suas regiões
+    tecnicos = []
+    regioes_lista = ['SP-NORTE', 'SP-SUL', 'SP-ABC', 'SUL-POA', 'SUL-CTB', 'NOR-FORTALEZA']
     
-    # Criando DataFrame base
-    df_lista = []
+    for i in range(1, 81):
+        reg = regioes_lista[i % len(regioes_lista)]
+        tecnicos.append({'Nome': f'Tecnico {i:02d}', 'Regiao': reg})
+    
+    base = []
     for t in tecnicos:
         for d in datas:
-            status = 'TB' if d.weekday() < 5 else 'FG'
-            df_lista.append({'Data': d, 'Tecnico': t, 'Status': status})
-    return pd.DataFrame(df_lista)
+            # Lógica simples: Sab/Dom é FG, resto é TB
+            status = 'FG' if d.weekday() >= 5 else 'TB'
+            base.append({
+                'Data': d,
+                'Tecnico': t['Nome'],
+                'Regiao': t['Regiao'],
+                'Status': status
+            })
+    return pd.DataFrame(base)
 
-df_base = carregar_dados_base()
+df_base = gerar_dados_ficticios()
 
-# --- FUNÇÕES DE FORMATAÇÃO ---
-def formatar_colunas_data(df_pivot):
-    """ Transforma a data do cabeçalho em 'seg 13/04' """
-    novas_colunas = []
-    dias_semana = {0: 'seg', 1: 'ter', 2: 'qua', 3: 'qui', 4: 'sex', 5: 'sáb', 6: 'dom'}
-    for col in df_pivot.columns:
-        if isinstance(col, datetime) or str(type(col)) == "<class 'pandas._libs.tslibs.timestamps.Timestamp'>":
-            dia_sem = dias_semana[col.weekday()]
-            data_formatada = col.strftime('%d/%m')
-            novas_colunas.append(f"{dia_sem} {data_formatada}")
-        else:
-            novas_colunas.append(col)
-    df_pivot.columns = novas_colunas
-    return df_pivot
-
-def colorir_status(val):
-    """ Aplica as cores conforme o status (estilo Excel) """
-    cores = {
+# 3. FUNÇÃO DE ESTILO (CORRIGIDA)
+def style_status(val):
+    color_map = {
         'TB': 'background-color: #C8E6C9; color: black;', # Verde
         'FG': 'background-color: #BBDEFB; color: black;', # Azul
         'LM': 'background-color: #FFCDD2; color: black;', # Vermelho
@@ -46,68 +42,81 @@ def colorir_status(val):
         'TR': 'background-color: #FFF9C4; color: black;', # Amarelo
         'PV': 'background-color: #E1BEE7; color: black;'  # Roxo
     }
-    return cores.get(val, '')
+    return color_map.get(val, '')
 
-# --- INTERFACE ---
-st.title("📊 Painel de Controle de Escalas")
+# 4. BARRA LATERAL (MENU)
+st.sidebar.title("Configurações")
+visao = st.sidebar.selectbox("Escolha a Visão:", ["Semanal (Gestor)", "Mensal (Gestor)", "Espelho de Ponto (28-27)", "Anual"])
+filtro_regiao = st.sidebar.multiselect("Filtrar por Região:", df_base['Regiao'].unique(), default=df_base['Regiao'].unique())
 
-menu = ["Semanal (Gestor)", "Mensal (Gestor)", "Espelho de Ponto (28-27)", "Anual"]
-escolha = st.sidebar.selectbox("Mudar Visão", menu)
+# Filtrando a base global pelas regiões selecionadas
+df_filtrado = df_base[df_base['Regiao'].isin(filtro_regiao)]
 
-# --- VISÃO SEMANAL (GESTO) ---
-if escolha == "Semanal (Gestor)":
-    st.subheader("Escala Semanal - Todos os Técnicos")
-    data_ref = st.sidebar.date_input("Selecione a semana (qualquer dia):", datetime(2026, 4, 13))
-    inicio_sem = data_ref - timedelta(days=data_ref.weekday())
-    fim_sem = inicio_sem + timedelta(days=6)
+# 5. LÓGICA DAS VISÕES
+if visao == "Semanal (Gestor)":
+    st.header("📅 Visão Semanal Empilhada")
+    data_ref = st.date_input("Ver semana do dia:", datetime(2026, 4, 13))
     
-    mask = (df_base['Data'].dt.date >= inicio_sem) & (df_base['Data'].dt.date <= fim_sem)
-    df_view = df_base[mask].pivot(index='Tecnico', columns='Data', values='Status')
-    df_view = formatar_colunas_data(df_view)
+    # Cálculo do intervalo da semana
+    inicio = data_ref - timedelta(days=data_ref.weekday())
+    fim = inicio + timedelta(days=6)
     
-    st.dataframe(df_view.style.applymap(colorir_status), use_container_width=True)
+    # Filtrar e Pivotar
+    mask = (df_filtrado['Data'].dt.date >= inicio) & (df_filtrado['Data'].dt.date <= fim)
+    df_week = df_filtrado[mask].pivot(index=['Regiao', 'Tecnico'], columns='Data', values='Status')
+    
+    # Formatar cabeçalho: "seg 13/04"
+    df_week.columns = [f"{d.strftime('%a')} {d.strftime('%d/%m')}" for d in df_week.columns]
+    
+    st.dataframe(df_week.style.applymap(style_status), use_container_width=True)
 
-# --- VISÃO MENSAL (GESTOR) ---
-elif escolha == "Mensal (Gestor)":
-    mes = st.sidebar.slider("Selecione o Mês", 1, 12, 4)
-    st.subheader(f"Visão Mensal - Mês {mes}")
+elif visao == "Mensal (Gestor)":
+    mes = st.sidebar.slider("Mês:", 1, 12, 4)
+    st.header(f"📆 Visão Mensal Empilhada - Mês {mes}")
     
-    mask = (df_base['Data'].dt.month == mes)
-    df_view = df_base[mask].pivot(index='Tecnico', columns='Data', values='Status')
-    df_view = formatar_colunas_data(df_view)
+    mask = (df_filtrado['Data'].dt.month == mes)
+    df_month = df_filtrado[mask].pivot(index=['Regiao', 'Tecnico'], columns='Data', values='Status')
     
-    st.dataframe(df_view.style.applymap(colorir_status), height=600)
+    # Formatar cabeçalho
+    df_month.columns = [f"{d.strftime('%a %d/%m')}" for d in df_month.columns]
+    
+    st.dataframe(df_month.style.applymap(style_status), height=600)
 
-# --- VISÃO ESPELHO DE PONTO (28 a 27) ---
-elif escolha == "Espelho de Ponto (28-27)":
-    st.subheader("Conferência de Espelho de Ponto")
-    tecnico = st.selectbox("Selecione o Técnico para conferência:", df_base['Tecnico'].unique())
-    mes_fim = st.sidebar.selectbox("Mês de Fechamento (até o dia 27):", 
-                                  ["Abril (28/03 a 27/04)", "Maio (28/04 a 27/05)"])
+elif visao == "Espelho de Ponto (28-27)":
+    st.header("📋 Conferência de Espelho de Ponto (28 a 27)")
     
-    # Lógica de datas para o Ponto
-    if "Abril" in mes_fim:
-        ini, fim = datetime(2026, 3, 28), datetime(2026, 4, 27)
+    # Seletores específicos para o Ponto
+    col_p1, col_p2 = st.columns(2)
+    with col_p1:
+        tecnico_sel = st.selectbox("Selecione o Técnico:", df_filtrado['Tecnico'].unique())
+    with col_p2:
+        mes_ponto = st.selectbox("Mês de Fechamento:", ["Abril (28/03 a 27/04)", "Maio (28/04 a 27/05)"])
+
+    # Lógica de datas do ponto
+    if "Abril" in mes_ponto:
+        d_ini, d_fim = datetime(2026, 3, 28), datetime(2026, 4, 27)
     else:
-        ini, fim = datetime(2026, 4, 28), datetime(2026, 5, 27)
-        
-    mask = (df_base['Data'] >= ini) & (df_base['Data'] <= fim) & (df_base['Tecnico'] == tecnico)
-    df_ponto = df_base[mask].copy()
-    
-    # Adicionando dia da semana para o técnico ver
-    df_ponto['Dia'] = df_ponto['Data'].dt.strftime('%a %d/%m')
-    
-    # Exibição
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.metric("Total Dias Trabalhados", len(df_ponto[df_ponto['Status'] == 'TB']))
-        st.dataframe(df_ponto[['Dia', 'Status']].set_index('Dia').style.applymap(colorir_status))
-    with col2:
-        st.info("Aqui você pode validar as horas extras ou observações do período.")
+        d_ini, d_fim = datetime(2026, 4, 28), datetime(2026, 5, 27)
 
-# --- VISÃO ANUAL ---
-elif escolha == "Anual":
-    st.subheader("Visão Anual Completa (Empilhada)")
-    # Nota: Mostrar 365 colunas para 80 técnicos é pesado, usamos scroll
-    df_view = df_base.pivot(index='Tecnico', columns='Data', values='Status')
-    st.dataframe(df_view.style.applymap(colorir_status), height=600)
+    mask_ponto = (df_filtrado['Data'] >= d_ini) & (df_filtrado['Data'] <= d_fim) & (df_filtrado['Tecnico'] == tecnico_sel)
+    df_resumo = df_filtrado[mask_ponto].copy()
+    
+    # Adicionando coluna amigável para o técnico
+    df_resumo['Dia da Semana'] = df_resumo['Data'].dt.strftime('%A')
+    df_resumo['Data Formatada'] = df_resumo['Data'].dt.strftime('%d/%m/%Y')
+    
+    # Mostrar Resumo de Contagem
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Dias de Trabalho (TB)", len(df_resumo[df_resumo['Status'] == 'TB']))
+    c2.metric("Folgas (FG)", len(df_resumo[df_resumo['Status'] == 'FG']))
+    c3.metric("Afastamentos/Faltas", len(df_resumo[df_resumo['Status'].isin(['FT', 'LM'])]))
+
+    # Tabela do Espelho
+    st.table(df_resumo[['Data Formatada', 'Dia da Semana', 'Status']].set_index('Data Formatada').style.applymap(style_status))
+
+elif visao == "Anual":
+    st.header("🗓️ Visão Anual Completa")
+    st.warning("Esta visão contém muitos dados. Use a barra de rolagem lateral.")
+    
+    df_year = df_filtrado.pivot(index=['Regiao', 'Tecnico'], columns='Data', values='Status')
+    st.dataframe(df_year.style.applymap(style_status), height=600)
